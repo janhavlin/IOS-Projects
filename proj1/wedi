@@ -1,0 +1,220 @@
+#!/bin/sh
+
+# 1. projekt do predmetu IOS
+# Autor: Jan Havlin, xhavli47@stud.fit.vutbr.cz
+# Datum: 28. 3. 2018
+
+export POSIXLY_CORRECT=yes
+DIR="."
+
+# Kontrolovani utility realpath
+if [ -z $(command -v realpath) ]; then
+	echo "Chyba: Nedostupna utilita realpath"
+	exit 1
+fi
+
+# Kontrolovani utility sed/gsed (merlin = sed; eva = gsed)
+SED="gsed"
+if [ -z $(command -v gsed) ]; then
+	SED="sed"
+fi
+
+# Kontrolovani utility sed/gsed (merlin = date; eva = gdate)
+DATECMD="gdate"
+if [ -z $(command -v gdate) ]; then
+	DATECMD="date"
+fi
+
+# Kontrolovani promenne WEDI_RC
+if [ -z ${WEDI_RC+x} ]; then
+	echo "Chyba: Neni nastavena cesta k souboru s daty (promenna WEDI_RC)"
+	exit 1
+elif [ -f "$WEDI_RC" ]; then
+	:	# Nalezen soubor s daty - vyskocime z ifu
+elif [ -d "$WEDI_RC" ]; then
+	echo "Chyba: WEDI_RC obsahuje cestu na adresar"
+	exit 1
+else
+	# Soubor neexistuje => vytvori se
+	mkdir -p $(dirname "$WEDI_RC")
+	touch "$WEDI_RC"
+	if [ $? -ne 0 ]; then exit 1;fi
+fi
+
+# Kontrolovani promenne EDITOR a VISUAL
+if [ -z ${EDITOR+x} ]; then
+	if [ -z ${VISUAL+x} ]; then
+		# EDITOR ani VISUAL nejsou nastaveny
+		FILEEDITOR="vi"
+	else
+		# VISUAL je nastaven
+		FILEEDITOR="$VISUAL"
+	fi
+else
+	# EDITOR je nastaven
+	FILEEDITOR="$EDITOR"
+fi
+
+# Varianta wedi [ADRESAR] - otevre posledne editovany soubor v ADRESARi
+if [ -d "$1" ] || [ -z ${1+x} ];	then
+	if [ -d "$1" ]; then
+		DIR="$1"
+	elif [ -z ${1+x} ]; then
+		DIR="."
+	fi
+	
+	I=1
+	N=$(wc -l < $WEDI_RC)
+		
+	while [ "$I" -le "$N" ];	# Zacatek cyklu
+	do
+		OUTPUT=$(find $(realpath "$DIR") -maxdepth 1 -wholename $(cut -f 3 "$WEDI_RC" | head -n $I | tail -n 1))
+		if [ ! -z "$OUTPUT" ]; then 	# Nesmi platit, ze je promenna prazdna
+			FILE="$(basename $OUTPUT)"
+			FILEPATH="$(realpath "$DIR")/$FILE"
+		fi
+		I=$((I+1))
+	done						# Konec cyklu
+	
+	if [ ! -f "$FILEPATH" ]; then
+		echo "Chyba: Nebyl nalezen zadny soubor"
+		exit 1
+	fi
+##########
+	
+# Varianta wedi -m [ADRESAR] - otevre nejvice editovany soubor v ADRESARi
+elif [ "$1" = "-m" ]; then
+		if [ -d "$2" ]; then
+		DIR="$2"
+	elif [ -z ${2+x} ]; then
+		DIR="."
+	else
+		echo "Chyba: Zadan chybny adresar. Pouziti: wedi -m [ADRESAR]"
+		exit 1
+	fi
+
+	I=1
+	N=$(wc -l < $WEDI_RC)
+	MAX=0
+	MAX_TMP=0
+	MAX_LINE=0	
+
+	while [ "$I" -le "$N" ];	# Zacatek cyklu
+	do
+		OUTPUT=$(find $(realpath "$DIR") -maxdepth 1 -wholename $(cut -f 3 "$WEDI_RC" | head -n $I | tail -n 1))
+		if [ ! -z "$OUTPUT" ]; then 	# Nesmi platit, ze je promenna prazdna
+			MAX_TMP=$(cut -f 1 "$WEDI_RC" | head -n $I | tail -n 1)
+			if [ "$MAX" -le "$MAX_TMP" ]; then
+				MAX="$MAX_TMP"
+				MAX_LINE="$I"
+			fi
+		fi
+		I=$((I+1))
+	done						# Konec cyklu
+	
+	if [ "$MAX_LINE" -eq 0 ]; then
+		echo "Chyba: Nebyl nalezen zadny soubor"
+		exit 1
+	fi
+	FILE=$(basename $(cut -f 3 "$WEDI_RC" | head -n "$MAX_LINE" | tail -n 1))
+	FILEPATH="$(realpath "$DIR")/$FILE"
+
+	if [ ! -f "$FILEPATH" ]; then
+		echo "Chyba: Nebyl nalezen zadny soubor"
+		exit 1
+	fi
+	
+##########
+
+# Varianta wedi -l [ADRESAR]
+elif [ "$1" = "-l" ]; then
+	if [ -d "$2" ]; then
+		DIR="$2"
+	elif [ -z ${2+x} ]; then
+		DIR="."
+	else
+		echo "Chyba: Zadan chybny adresar. Pouziti: wedi -l [ADRESAR]"
+		exit 1
+	fi
+
+	I=1
+	N=$(wc -l < $WEDI_RC)
+	
+	while [ "$I" -le "$N" ];	# Zacatek cyklu
+	do
+		OUTPUT=$(find $(realpath "$DIR") -maxdepth 1 -wholename $(cut -f 3 "$WEDI_RC" | head -n $I | tail -n 1))
+		if [ ! -z "$OUTPUT" ]; then 	# Nesmi platit, ze je promenna prazdna
+			echo "$(basename $OUTPUT)"
+		fi
+		I=$((I+1))
+	done	
+	exit 0
+##########
+
+# Varianta wedi -b|-a DATUM [ADRESAR]
+elif [ "$1" = "-b" ] || [ "$1" = "-a" ]; then		# "${#2}" = "10" -- Delka (pocet znaku) druheho argumentu je rovna 10
+	if [ -d "$3" ]; then
+		DIR="$3"
+	elif [ -z ${3+x} ]; then
+		DIR="."
+	else
+		echo "Chyba: Zadan chybny adresar. Pouziti: wedi -b|-a DATUM [ADRESAR]"
+		exit 1
+	fi
+	DATE="$($DATECMD -d $2 +%s)"
+	if [ $? -ne 0 ]; then exit 1;fi
+	I=1
+	N=$(wc -l < $WEDI_RC)
+	
+	while [ "$I" -le "$N" ];	# Zacatek cyklu
+	do
+		DATECOMPARE=$($DATECMD -d $(cut -f 2 "$WEDI_RC" | head -n $I | tail -n 1) +%s)
+		if [ "$1" = "-b" ]; then		# Podminka "before"
+			if [ "$DATE" -gt "$DATECOMPARE" ]; then		# Zadane datum je vyssi nez v souboru
+				OUTPUT=$(find $(realpath "$DIR") -maxdepth 1 -wholename $(cut -f 3 "$WEDI_RC" | head -n $I | tail -n 1))
+				if [ ! -z "$OUTPUT" ]; then 	# Nesmi platit, ze je promenna prazdna
+					echo "$(basename $OUTPUT)"
+				fi
+			fi											# Konec podminky casu
+		
+		elif [ "$1" = "-a" ]; then		# Podminka "after"
+			if [ "$DATE" -le "$DATECOMPARE" ]; then		# Zadane datum je nizsi nez v souboru
+				OUTPUT=$(find $(realpath "$DIR") -maxdepth 1 -wholename $(cut -f 3 "$WEDI_RC" | head -n $I | tail -n 1))
+				if [ ! -z "$OUTPUT" ]; then 	# Nesmi platit, ze je promenna prazdna
+					echo "$(basename $OUTPUT)"
+				fi
+			fi											# Konec podminky casu
+		fi								# Konec podminky "before"/"after"
+		
+		I=$((I+1))
+	done						# Konec cyklu
+	exit 0
+##########
+
+# Varianta wedi SOUBOR
+elif [ -f "$1" ]; then
+	FILE="$1"
+	FILEPATH=$(realpath "$FILE") # Ze zadani: realpath nemusí existovat, v takovém případě ukončit s chybou
+##########
+
+# Varianta spatny argument
+else
+	printf "Chyba: Nespravny argument. Pouziti:\nwedi SOUBOR\nwedi [ADRESAR]\nwedi -m [ADRESAR]\nwedi -l [ADRESAR]\nwedi -b|-a DATUM [ADRESAR]\n"	
+	exit 1
+fi
+##########
+
+# Otevirani souboru (predem nastaveno FILE a FILEPATH)
+DATE=$(date +%Y-%m-%d) 
+LINE=$(cut -f 3 "$WEDI_RC" | grep -x -n "$FILEPATH" | cut -f 1 -d ":") # Vrati cislo radku, ktery se bude editovat
+
+if [ "$LINE" = "" ]; then
+	printf "1\t$DATE\t$FILEPATH\n" >> "$WEDI_RC"
+else
+	EDITS=$(cut -f 1 "$WEDI_RC" | head -n $LINE | tail -n 1)
+	EDITS=$((EDITS+1))
+	"$SED" -i "$LINE d" "$WEDI_RC"
+	printf "$EDITS\t$DATE\t$FILEPATH\n" >> "$WEDI_RC"
+fi
+
+"$FILEEDITOR" "$DIR/$FILE"
