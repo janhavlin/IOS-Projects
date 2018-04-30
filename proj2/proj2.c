@@ -1,3 +1,7 @@
+// 2. projekt do predmetu IOS
+// Autor: Jan Havlin, xhavli47@stud.fit.vutbr.cz
+// Datum: 30. 4. 2018
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +27,6 @@ sem_t *semaphore_finish = NULL;		// Allows riders to exit the bus and finish
 int *sh_output_order = NULL;
 int sh_output_order_id = 0;
 
-// Total generated riders (used for numbering them)
-int *sh_rider_amount = NULL;
-int sh_rider_amount_id = 0;
-
 // Amount of riders waiting at the bus stop
 int *sh_riders_waiting = NULL;
 int sh_riders_waiting_id = 0;
@@ -38,7 +38,6 @@ int sh_riders_left_boarding_id = 0;
 // Total amount of riders to be transported
 int *sh_riders_remaining = NULL;
 int sh_riders_remaining_id = 0;
-
 
 FILE *out_file = NULL;
 	
@@ -62,10 +61,10 @@ void parse_input(int *R, int *C, int *ART, int *ABT, int argc, char *argv[])
 		}
 	}
 	
-	*R = atoi(argv[1]);
-	*C = atoi(argv[2]);
-	*ART = atoi(argv[3]);
-	*ABT = atoi(argv[4]);
+	*R = strtol(argv[1], NULL, 0);
+	*C = strtol(argv[2], NULL, 0);
+	*ART = strtol(argv[3], NULL, 0);
+	*ABT = strtol(argv[4], NULL, 0);
 	
 	if (*R <= 0)
 	{
@@ -91,50 +90,41 @@ void parse_input(int *R, int *C, int *ART, int *ABT, int argc, char *argv[])
 
 int init()
 {	
-	if ((semaphore_mutex = sem_open("/xhavli47.semaphore0", O_CREAT | O_EXCL, 0666, 1)) == SEM_FAILED)
+	semaphore_mutex = sem_open("/xhavli47.semaphore0", O_CREAT | O_EXCL, 0666, 1);
+	semaphore_enter = sem_open("/xhavli47.semaphore1", O_CREAT | O_EXCL, 0666, 1);
+	semaphore_board = sem_open("/xhavli47.semaphore2", O_CREAT | O_EXCL, 0666, 0);
+	semaphore_depart = sem_open("/xhavli47.semaphore3", O_CREAT | O_EXCL, 0666, 0);
+	semaphore_finish = sem_open("/xhavli47.semaphore4", O_CREAT | O_EXCL, 0666, 1);
+	
+	if (semaphore_mutex == SEM_FAILED || semaphore_enter == SEM_FAILED || semaphore_board == SEM_FAILED || semaphore_depart == SEM_FAILED || semaphore_finish == SEM_FAILED)
+	{
+		fprintf(stderr, "Error creating a semaphore\n");
+		return -1;
+	}
+	
+	sh_output_order_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+	sh_output_order = shmat(sh_output_order_id, NULL, 1);
+	sh_riders_waiting_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+	sh_riders_waiting = shmat(sh_riders_waiting_id, NULL, 0);
+	sh_riders_left_boarding_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+	sh_riders_left_boarding = shmat(sh_riders_left_boarding_id, NULL, 0);
+	sh_riders_remaining_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+	sh_riders_remaining = shmat(sh_riders_remaining_id, NULL, 0);
+	
+	if (	sh_output_order_id == -1 			|| sh_output_order == NULL 			||
+			sh_riders_waiting_id == -1 			|| sh_riders_waiting == NULL 		||
+			sh_riders_left_boarding_id == -1 	|| sh_riders_left_boarding == NULL 	||
+			sh_riders_remaining_id == -1 		|| sh_riders_remaining == NULL 		)
+	{
+		fprintf(stderr, "Error creating shared memory\n");
 		return -1;	
-	if ((semaphore_enter = sem_open("/xhavli47.semaphore1", O_CREAT | O_EXCL, 0666, 1)) == SEM_FAILED)
-		return -1;
-	if ((semaphore_board = sem_open("/xhavli47.semaphore2", O_CREAT | O_EXCL, 0666, 0)) == SEM_FAILED)
-		return -1;
-	if ((semaphore_depart = sem_open("/xhavli47.semaphore3", O_CREAT | O_EXCL, 0666, 0)) == SEM_FAILED)
-		return -1;
-	if ((semaphore_finish = sem_open("/xhavli47.semaphore4", O_CREAT | O_EXCL, 0666, 1)) == SEM_FAILED)
-		return -1;		
-	
-	// if (semaphore_mutex == SEM_FAILED || semaphore_enter == SEM_FAILED || semaphore_board == SEM_FAILED || semaphore_depart == SEM_FAILED || semaphore_finish == SEM_FAILED)
-	// {
-		// fprintf(stderr,"Error creating a semaphore\n");
-		// return -1;
-	// }
-	
-	if ((sh_output_order_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666)) == -1)
-		return -1;
-    if ((sh_output_order = shmat(sh_output_order_id, NULL, 1)) == NULL)
-		return -1;
-	if ((sh_rider_amount_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666)) == -1)
-		return -1;
-    if ((sh_rider_amount = shmat(sh_rider_amount_id, NULL, 1)) == NULL)
-		return -1;	
-	if ((sh_riders_waiting_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666)) == -1)
-		return -1;
-    if ((sh_riders_waiting = shmat(sh_riders_waiting_id, NULL, 0)) == NULL)
-		return -1;		
-	if ((sh_riders_left_boarding_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666)) == -1)
-		return -1;
-    if ((sh_riders_left_boarding = shmat(sh_riders_left_boarding_id, NULL, 0)) == NULL)
-		return -1;
-	if ((sh_riders_remaining_id = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666)) == -1)
-		return -1;
-    if ((sh_riders_remaining = shmat(sh_riders_remaining_id, NULL, 0)) == NULL)
-		return -1;
-	
-	// if (sh_output_order_id == -1 || sh_output_order == -1 || sh_rider_amount_id == -1 || sh_rider_amount == -1 || sh_riders_waiting_id == -1 || sh_riders_waiting == -1 || sh_riders_left_boarding_id == -1 || sh_riders_left_boarding == -1 || sh_riders_remaining_id == -1 || sh_riders_remaining == -1 ||)
+	}
 	
 	if ((out_file = fopen("proj2.out", "w")) == NULL)
+	{
+		fprintf(stderr, "Error opening file\n");
 		return -1;
-	
-	
+	}
 	
 	printf("DEBUG: Init success\n");
 	return 0;
@@ -154,7 +144,6 @@ void clean_up()
 	sem_unlink("/xhavli47.semaphore4");
 	
 	shmctl(sh_output_order_id, IPC_RMID, NULL);
-	shmctl(sh_rider_amount_id, IPC_RMID, NULL);
 	shmctl(sh_riders_waiting_id, IPC_RMID, NULL);
 	shmctl(sh_riders_left_boarding_id, IPC_RMID, NULL);
 	shmctl(sh_riders_remaining_id, IPC_RMID, NULL);
@@ -198,7 +187,7 @@ void process_bus(int capacity, int delay)
 		// printf("DEBUG BUS: Waiting: %d; left boarding: %d; remaining: %d\n", *sh_riders_waiting, *sh_riders_left_boarding, *sh_riders_remaining);
 		if (*sh_riders_waiting > 0)
 		{
-			print_file(out_file, "%d\t: BUS\t: start boarding %d\n", ++(*sh_output_order), *sh_riders_waiting);
+			print_file(out_file, "%d\t: BUS\t: start boarding: %d\n", ++(*sh_output_order), *sh_riders_waiting);
 			if (*sh_riders_waiting < capacity)
 				*sh_riders_left_boarding = *sh_riders_waiting;
 			else
@@ -210,13 +199,12 @@ void process_bus(int capacity, int delay)
 			sem_wait(semaphore_mutex);		// No more exiting, we are boarding
 			
 			sem_post(semaphore_board);		// Allow riders to board, wait for them to tell the bus to depart
-			// sem_wait(semaphore_finish); 	// Don't allow any riders to exit
 			sem_post(semaphore_mutex);
 			
 			sem_wait(semaphore_depart);		// Leave after all riders have boarded
 		
 			sem_wait(semaphore_mutex);
-			print_file(out_file, "%d\t: BUS\t: end boarding %d\n", ++(*sh_output_order), *sh_riders_waiting);
+			print_file(out_file, "%d\t: BUS\t: end boarding: %d\n", ++(*sh_output_order), *sh_riders_waiting);
 		}
 		else
 		{
@@ -244,11 +232,11 @@ void process_bus(int capacity, int delay)
 	exit(0);	
 }
 
-void process_rider()
+void process_rider(const int rider_id)
 {
 	// Rider starting
 	sem_wait(semaphore_mutex);
-	int rider_id = ++(*sh_rider_amount);
+	// int rider_id = ++(*sh_rider_amount);
 	print_file(out_file, "%d\t: RID %d\t: start\n", ++(*sh_output_order), rider_id);
 	sem_post(semaphore_mutex);
 
@@ -285,7 +273,6 @@ void process_rider()
 	sem_post(semaphore_mutex);
 	sem_post(semaphore_finish);
 
-
 	exit(0);
 }
 
@@ -299,11 +286,10 @@ void generate_riders(int amount, int delay)
 		if (rider_id == 0)
 		{
 			// Child process
-			process_rider();
+			process_rider(i + 1); // i + 1 == Index of the rider
 		}
 		// Main process
-		// SLEEP(delay);
-		// printf("Random time: %d\n", ((float)(rand() % delay))/1000);
+		
 		if (delay != 0)
 			usleep(((rand() % delay))*1000);
 	}
@@ -339,7 +325,12 @@ int main(int argc, char *argv[])
 	
 	// Creating bus process
 	pid_t bus_id = fork();
-	if (bus_id == 0)	// Child process
+	if (bus_id < 0)
+	{
+		fprintf(stderr, "DEBUG: Erorr creating BUS process\n");
+		return 1;
+	}
+	else if (bus_id == 0)	// Child process
 	{
 		process_bus(C, ABT);
 	}
@@ -347,7 +338,11 @@ int main(int argc, char *argv[])
 
 	// Creating rider processes
 	pid_t generate_riders_id = fork();
-	if (generate_riders_id == 0)	// Child process
+	if (generate_riders_id < 0)
+	{
+		fprintf(stderr, "Erorr creating helper process\n");
+	}
+	else if (generate_riders_id == 0)	// Child process
 	{
 		generate_riders(R, ART);
 	}
