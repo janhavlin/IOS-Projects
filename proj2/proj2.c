@@ -1,21 +1,20 @@
 // 2. projekt do predmetu IOS
 // Autor: Jan Havlin, xhavli47@stud.fit.vutbr.cz
-// Datum: 30. 4. 2018
+// Datum: 1. 5. 2018
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
-
-#include <sys/types.h> 	//getpid()
-#include <unistd.h>		//getpid(), fork()
+#include <sys/types.h>
+#include <unistd.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <sys/shm.h>
 #include <semaphore.h>
 #include <signal.h>
-#include <fcntl.h>		//O_CREAT
+#include <fcntl.h>
 
 sem_t *semaphore_mutex = NULL;
 sem_t *semaphore_enter = NULL;		// Allows riders to enter the station
@@ -40,7 +39,8 @@ int *sh_riders_remaining = NULL;
 int sh_riders_remaining_id = 0;
 
 FILE *out_file = NULL;
-	
+
+// Precte argumenty ze vstupu a ulozi je do promennych
 void parse_input(int *R, int *C, int *ART, int *ABT, int argc, char *argv[])
 {
 	if (argc != 5)
@@ -68,26 +68,27 @@ void parse_input(int *R, int *C, int *ART, int *ABT, int argc, char *argv[])
 	
 	if (*R <= 0)
 	{
-		fprintf(stderr, "Invalid R argument\n");
+		fprintf(stderr, "Invalid first argument (R > 0)\n");
 		exit(1);
 	}
 	if (*C <= 0)
 	{
-		fprintf(stderr, "spatny C\n");
+		fprintf(stderr, "Invalid second argument (C > 0)\n");
 		exit(1);
 	}	
 	if (*ART < 0 || *ART > 1000)
 	{
-		fprintf(stderr, "spatny ART\n");
+		fprintf(stderr, "Invalid third argument (0 <= ART <= 1000)\n");
 		exit(1);
 	}
 	if (*ABT < 0 || *ABT > 1000)
 	{
-		fprintf(stderr, "spatny ABT\n");
+		fprintf(stderr, "Invalid fourth argument (0 <= ABT <= 1000)\n");
 		exit(1);
 	}
 }
 
+// Vytvori semafory, sdilenou pamet a otevre soubor
 int init()
 {	
 	semaphore_mutex = sem_open("/xhavli47.semaphore0", O_CREAT | O_EXCL, 0666, 1);
@@ -126,10 +127,10 @@ int init()
 		return -1;
 	}
 	
-	printf("DEBUG: Init success\n");
 	return 0;
 }
 
+// Odstrani semafory, sdilenou pamet a zavre soubor
 void clean_up()
 {
 	sem_close(semaphore_mutex);
@@ -148,11 +149,11 @@ void clean_up()
 	shmctl(sh_riders_left_boarding_id, IPC_RMID, NULL);
 	shmctl(sh_riders_remaining_id, IPC_RMID, NULL);
 	
-	printf("DEBUG: Called fclose\n");
 	if (out_file != NULL)
 		fclose(out_file);
 }
 
+// Tisk do souboru
 void print_file(FILE * stream, const char * format, ...)
 {
   va_list args;
@@ -163,11 +164,12 @@ void print_file(FILE * stream, const char * format, ...)
   fflush(stream);
   va_end (args);
   
-  va_start (args, format);
-  vprintf (format, args);
-  va_end (args);
+  // va_start (args, format);	/* DEBUG - Print to stdout */
+  // vprintf (format, args);	/* DEBUG - Print to stdout */
+  // va_end (args); 			/* DEBUG - Print to stdout */
 }
 
+// Prubeh procesu bus
 void process_bus(int capacity, int delay)
 {
 	print_file(out_file, "%d\t: BUS\t: start\n", ++(*sh_output_order));
@@ -184,7 +186,6 @@ void process_bus(int capacity, int delay)
 		// Waiting riders - board them
 		// No waiting riders - depart
 		sem_wait(semaphore_mutex);
-		// printf("DEBUG BUS: Waiting: %d; left boarding: %d; remaining: %d\n", *sh_riders_waiting, *sh_riders_left_boarding, *sh_riders_remaining);
 		if (*sh_riders_waiting > 0)
 		{
 			print_file(out_file, "%d\t: BUS\t: start boarding: %d\n", ++(*sh_output_order), *sh_riders_waiting);
@@ -232,11 +233,11 @@ void process_bus(int capacity, int delay)
 	exit(0);	
 }
 
+// Prubeh procesu rider
 void process_rider(const int rider_id)
 {
 	// Rider starting
 	sem_wait(semaphore_mutex);
-	// int rider_id = ++(*sh_rider_amount);
 	print_file(out_file, "%d\t: RID %d\t: start\n", ++(*sh_output_order), rider_id);
 	sem_post(semaphore_mutex);
 
@@ -254,7 +255,6 @@ void process_rider(const int rider_id)
 	(*sh_riders_waiting)--;
 	(*sh_riders_left_boarding)--;
 	(*sh_riders_remaining)--;
-	// printf("DEBUG: Waiting: %d; left boarding: %d on board: %d\n", *sh_riders_waiting, *sh_riders_left_boarding, *sh_riders_onboard);
 	
 	// Keep unlocking boarding semaphore while there are waiting riders or bus capacity has not been reached
 	if (*sh_riders_left_boarding > 0)
@@ -269,47 +269,42 @@ void process_rider(const int rider_id)
 	sem_wait(semaphore_finish);
 	sem_wait(semaphore_mutex);
 	print_file(out_file, "%d\t: RID %d\t: finish\n", ++(*sh_output_order), rider_id);
-	// printf("DEBUG: Remaining: %d on board: %d\n", *sh_riders_remaining, *sh_riders_onboard);
 	sem_post(semaphore_mutex);
 	sem_post(semaphore_finish);
 
 	exit(0);
 }
 
-void generate_riders(int amount, int delay)
+// Prubeh procesu pro vytvoreni rideru
+void generate_riders(const int amount, const int delay)
 {
-	int status = 0;
-	printf("DEBUG: Called generate_riders function %d %d\n", amount, delay);
 	for (int i = 0; i < amount; i++)
 	{
 		pid_t rider_id = fork();
-		if (rider_id == 0)
+		if (rider_id == 0)		// Child process
 		{
-			// Child process
 			process_rider(i + 1); // i + 1 == Index of the rider
 		}
-		// Main process
+		// Parent process
 		
 		if (delay != 0)
 			usleep(((rand() % delay))*1000);
 	}
-	printf("Process generate_riders waiting...\n");
-	while (wait(&status) > 0);
-	printf("DEBUG: Exiting generate_riders process\n");
+		
+	// Waiting for all child processes to end
+	for (int i = 0; i < amount; i++)
+		wait(NULL);
+
 	exit(0);	
 }
 
 int main(int argc, char *argv[])
 {
-	printf("DEBUG: Hello, World!\n");
 	int R;		// Amount of rider processes; R > 0
 	int C;		// Capacity of the bus; C > 0
 	int ART;	// Maximum time (ms) between generating rider processes; 0 <= ART <= 1000
 	int ABT;	// Maximum time (ms) while process bus simulates a ride; 0 <= ABT <= 1000
 	parse_input(&R, &C, &ART, &ABT, argc, argv);
-	printf("DEBUG: R: %d; C: %d; ART: %d; ABT: %d\n", R, C, ART, ABT);
-	
-	int status = 0;
 	
 	// Creating semaphore and opening output file
 	if (init() == -1)
@@ -327,20 +322,21 @@ int main(int argc, char *argv[])
 	pid_t bus_id = fork();
 	if (bus_id < 0)
 	{
-		fprintf(stderr, "DEBUG: Erorr creating BUS process\n");
 		return 1;
 	}
 	else if (bus_id == 0)	// Child process
 	{
 		process_bus(C, ABT);
 	}
-	// Main process
+	// Parent process
 
 	// Creating rider processes
 	pid_t generate_riders_id = fork();
 	if (generate_riders_id < 0)
 	{
+		kill(bus_id, SIGTERM);
 		fprintf(stderr, "Erorr creating helper process\n");
+		return 1;
 	}
 	else if (generate_riders_id == 0)	// Child process
 	{
@@ -348,10 +344,12 @@ int main(int argc, char *argv[])
 	}
 	// Main process
 	
+	// Waiting for bus process and generator process to end
+	wait(NULL);
+	wait(NULL);
+	
 	// Cleaning semaphores and shared memory
-	printf("DEBUG: Main process waiting...\n");
-	while (wait(&status) > 0);
 	clean_up();
-	printf("DEBUG: Exiting main process\n");
+	
 	return 0;
 }
